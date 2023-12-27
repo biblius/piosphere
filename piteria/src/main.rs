@@ -1,9 +1,8 @@
-use std::{
-    fs,
-    io::stdin,
-    process::{Command, Stdio},
+use crate::{
+    db::db_pool,
+    socket::client::Client,
+    systemd::{SysdInstallConfig, SysdServiceConfig, SysdUnitConfig, SystemdConfig},
 };
-
 use error::PiteriaError;
 use nginx::{parse_vhost_file, NginxConfig, NginxLocation};
 use serde::{Deserialize, Serialize};
@@ -11,13 +10,14 @@ use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
 };
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
-
-use crate::{
-    socket::{client::Client, server::Server},
-    systemd::{RestartOption, SysdInstallConfig, SysdServiceConfig, SysdUnitConfig, SystemdConfig},
+use socket::{server::start_server, PiteriaMessage};
+use std::{
+    fs,
+    io::stdin,
+    process::{Command, Stdio},
 };
 
+pub mod db;
 pub mod error;
 pub mod nginx;
 pub mod socket;
@@ -25,32 +25,20 @@ pub mod systemd;
 
 pub type PiteriaResult<T> = Result<T, PiteriaError>;
 
+pub const PITERIA_DB_FILE: &str = "/opt/piteria/piteria.db";
+
 #[tokio::main]
 async fn main() {
     let mut signals = Signals::new([SIGTERM, SIGINT]).unwrap();
 
     let var = std::env::args().collect::<Vec<_>>();
 
+    demo().await;
+
     if var.get(1).is_some() {
-        println!("Starting server");
-        let handle = Server::run("/tmp/sock");
-
-        let signals = tokio::spawn(async move {
-            for sig in signals.forever() {
-                println!("Received signal {:?}", sig);
-
-                if sig == SIGINT {
-                    println!("Closing server");
-                    let result = handle.close().await;
-                    return result;
-                }
-            }
-            unreachable!()
-        });
-
-        println!("Server up and running");
-
-        let _ = signals.await.expect("error while shutting down");
+        start_server("/tmp/sock")
+            .await
+            .expect("Error closing server");
     } else {
         println!("Starting client");
         let client = Client::new("/tmp/sock")
@@ -70,20 +58,15 @@ async fn main() {
                 println!("Received signal {:?}", sig);
 
                 if sig == SIGINT {
-                    return;
+                    let result = client.close().await;
+                    return result;
                 }
             }
             unreachable!()
         });
 
-        signals.await.expect("error while shutting down");
+        let _ = signals.await.expect("error while shutting down");
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PiteriaMessage {
-    Hello,
-    Closed,
 }
 
 async fn process_message(message: PiteriaMessage) -> PiteriaMessage {
@@ -93,18 +76,9 @@ async fn process_message(message: PiteriaMessage) -> PiteriaMessage {
 
 async fn demo() {
     let systemd_cfg = SystemdConfig {
-        file_location: "dump/hello.service".to_string(),
-        unit: SysdUnitConfig {
-            description: "Hello World".to_string(),
-        },
-        service: SysdServiceConfig {
-            exec_start: "echo 'hello'".to_string(),
-            restart: RestartOption::Always,
-            user: "root".to_string(),
-            group: "root".to_string(),
-            env: vec![("MyKey".to_string(), "MyValue".to_string())],
-            dir: "/var/wwww/hello".to_string(),
-        },
+        file_location: "dump/hello2.service".to_string(),
+        unit: SysdUnitConfig::default(),
+        service: SysdServiceConfig::default(),
         install: SysdInstallConfig::default(),
     };
 
@@ -116,11 +90,9 @@ async fn demo() {
         location: vec![NginxLocation::new(), NginxLocation::new()],
     };
 
-    let options = SqliteConnectOptions::new()
-        .filename("piteria.db")
-        .create_if_missing(true);
-
-    let pool = SqlitePool::connect_with(options).await.unwrap();
+    let pool = db_pool("piteria.db")
+        .await
+        .expect("Could not establish DB pool");
 
     sqlx::migrate!().run(&pool).await.unwrap();
 
@@ -172,7 +144,7 @@ fn setup_systemd_service(config: SystemdConfig) {
     fs::write(path, config.to_string()).unwrap()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Deployment {
     /// User defined name of the deployment.
     pub name: String,

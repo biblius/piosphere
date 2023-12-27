@@ -1,0 +1,14 @@
+[Unit]
+Description=My super awesome application
+
+[Service]
+User=root
+WorkingDirectory=/path/to/my-app
+ExecStart=echo 'Hello World'
+Group=root
+Restart=always
+Environment=MyKey=MyValue
+
+[Install]
+WantedBy=multi-user.target
+

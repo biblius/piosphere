@@ -3,12 +3,42 @@ use crate::{
     socket::{read, write, PiteriaIOError},
     PiteriaResult,
 };
+use signal_hook::{
+    consts::{SIGINT, SIGTERM},
+    iterator::Signals,
+};
 use std::{collections::HashMap, path::Path};
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
 };
+
+pub async fn start_server(socket: &str) -> Result<(), JoinError> {
+    println!("Starting server");
+
+    let mut signals = Signals::new([SIGTERM, SIGINT]).unwrap();
+
+    let handle = Server::run(socket);
+
+    let signals = tokio::spawn(async move {
+        for sig in signals.forever() {
+            println!("Received signal {:?}", sig);
+
+            if sig == SIGINT {
+                println!("Closing server");
+                let result = handle.close().await;
+                return result;
+            }
+        }
+        unreachable!()
+    });
+
+    println!("Server up and running");
+
+    // Should theoretically never happen since the signals task cannot panic
+    signals.await.expect("error while shutting down")
+}
 
 pub struct Server {
     terminate_tx: Sender<()>,
@@ -179,7 +209,7 @@ impl ServerSession {
                 tokio::select! {
 
                 message = read(&mut self.stream) => {
-                        println!("Sending message: {:?}", message);
+                        println!("Session got message: {:?}", message);
                         match message {
                             Ok(message) => {
                                 let response = process_message(message).await;

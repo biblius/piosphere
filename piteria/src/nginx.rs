@@ -5,16 +5,21 @@ use nom::{
     sequence::delimited,
     IResult,
 };
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 use crate::PiteriaError;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NginxConfig {
     /// Absolute path to the nginx config file.
+    ///
+    /// By default this should be in /etc/nginx/sites-enabled
     pub file_location: String,
 
-    /// Sets the `listen` directive in the `server` to this value. 80 is the default.
+    /// Sets the `listen` directive in the `server` to this value.
+    ///
+    /// 80 is the default.
     pub listen: usize,
 
     /// The public facing domain of the server. Used by Nginx
@@ -61,6 +66,19 @@ impl Display for NginxConfig {
     }
 }
 
+/// Key value pairs for an Nginx location.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct NginxLocation {
+    /// Determines which paths will get forwarded to `proxy_pass`
+    pub paths: Vec<String>,
+
+    /// A list of Nginx directives inside a `location` block.
+    pub directives: Vec<(String, String)>,
+
+    /// The address where the app will be listening on.
+    pub proxy_pass: String,
+}
+
 impl NginxLocation {
     pub fn new() -> Self {
         Self {
@@ -92,19 +110,6 @@ impl NginxLocation {
             proxy_pass: "http://localhost:42069/".to_string(),
         }
     }
-}
-
-/// Key value pairs for an Nginx location.
-#[derive(Debug, Default)]
-pub struct NginxLocation {
-    /// Determines which paths will get forwarded to `proxy_pass`
-    pub paths: Vec<String>,
-
-    /// A list of Nginx directives inside a `location` block.
-    pub directives: Vec<(String, String)>,
-
-    /// The address where the app will be listening on.
-    pub proxy_pass: String,
 }
 
 impl Display for NginxLocation {

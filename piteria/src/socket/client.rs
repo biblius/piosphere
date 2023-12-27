@@ -8,7 +8,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::{PiteriaIOError, PiteriaIOResult, PiteriaRequest};
+use super::{PiteriaIOError, PiteriaIOResult, PiteriaRequest, PiteriaResponse};
 
 pub struct Client {
     tx: Sender<PiteriaRequest>,
@@ -40,7 +40,7 @@ impl Client {
     }
 
     /// Send a Piteria message to the server and wait for a response.
-    pub async fn request(&self, msg: PiteriaMessage) -> PiteriaIOResult<PiteriaMessage> {
+    pub async fn request(&self, msg: PiteriaMessage) -> PiteriaIOResult<PiteriaResponse> {
         println!("Client requesting: {:?}", msg);
 
         let (tx, rx) = tokio::sync::oneshot::channel();

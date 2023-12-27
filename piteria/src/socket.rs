@@ -1,4 +1,5 @@
-use crate::PiteriaMessage;
+use crate::Deployment;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{array::TryFromSliceError, io::ErrorKind};
 use thiserror::Error;
 use tokio::{
@@ -15,6 +16,23 @@ type PiteriaIOResult<T> = Result<T, PiteriaIOError>;
 const HEADER_SIZE: usize = std::mem::size_of::<usize>();
 
 type PiteriaHeader = [u8; HEADER_SIZE];
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PiteriaMessage {
+    Hello,
+    Overview,
+}
+
+#[derive(Debug)]
+struct PiteriaRequest {
+    tx: oneshot::Sender<PiteriaResponse>,
+    msg: PiteriaMessage,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PiteriaResponse {
+    Overview(Vec<Deployment>),
+}
 
 #[derive(Debug, Error)]
 pub enum PiteriaIOError {
@@ -37,12 +55,6 @@ pub enum PiteriaIOError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Debug)]
-struct PiteriaRequest {
-    tx: oneshot::Sender<PiteriaMessage>,
-    msg: PiteriaMessage,
-}
-
 async fn write(stream: &mut UnixStream, message: PiteriaMessage) -> PiteriaIOResult<()> {
     stream.writable().await?;
 
@@ -62,7 +74,7 @@ async fn write(stream: &mut UnixStream, message: PiteriaMessage) -> PiteriaIORes
     Ok(())
 }
 
-async fn read(stream: &mut UnixStream) -> PiteriaIOResult<PiteriaMessage> {
+async fn read<T: DeserializeOwned>(stream: &mut UnixStream) -> PiteriaIOResult<T> {
     stream.readable().await?;
 
     let mut buf = [0; HEADER_SIZE];
@@ -78,9 +90,8 @@ async fn read(stream: &mut UnixStream) -> PiteriaIOResult<PiteriaMessage> {
     let buf = &mut vec![0; len];
     stream.read_exact(buf).await?;
 
-    let msg: PiteriaMessage = bincode::deserialize(buf)?;
+    let msg = bincode::deserialize(buf)?;
 
-    println!("Read message: {:?}", msg);
     Ok(msg)
 }
 
