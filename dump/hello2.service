@@ -3,10 +3,10 @@ Description=My super awesome application
 
 [Service]
 User=root
+Restart=always
 WorkingDirectory=/path/to/my-app
 ExecStart=echo 'Hello World'
 Group=root
-Restart=always
 Environment=MyKey=MyValue
 
 [Install]

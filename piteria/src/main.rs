@@ -3,6 +3,7 @@ use crate::{
     socket::client::Client,
     systemd::{SysdInstallConfig, SysdServiceConfig, SysdUnitConfig, SystemdConfig},
 };
+use db::PiteriaDatabase;
 use error::PiteriaError;
 use nginx::{parse_vhost_file, NginxConfig, NginxLocation};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use signal_hook::{
     iterator::Signals,
 };
 use socket::{server::start_server, PiteriaMessage};
+use sqlx::SqlitePool;
 use std::{
     fs,
     io::stdin,
@@ -33,40 +35,46 @@ async fn main() {
 
     let var = std::env::args().collect::<Vec<_>>();
 
-    demo().await;
+    let pool = db_pool("piteria.db")
+        .await
+        .expect("Could not establish DB pool");
 
-    if var.get(1).is_some() {
-        start_server("/tmp/sock")
-            .await
-            .expect("Error closing server");
-    } else {
-        println!("Starting client");
-        let client = Client::new("/tmp/sock")
-            .await
-            .expect("Could not connect to Piteria server");
+    demo(&pool).await;
 
-        let mut buf = String::new();
-        stdin().read_line(&mut buf).unwrap();
-        let res = client
-            .request(PiteriaMessage::Hello)
-            .await
-            .expect("error in request");
-        println!("Got response: {:?}", res);
+    let db = PiteriaDatabase::new(pool);
+    dbg!(db.list_deployments().await);
+    //if var.get(1).is_some() {
+    //start_server("/tmp/sock")
+    //.await
+    //.expect("Error closing server");
+    //} else {
+    //println!("Starting client");
+    //let client = Client::new("/tmp/sock")
+    //.await
+    //.expect("Could not connect to Piteria server");
 
-        let signals = tokio::spawn(async move {
-            for sig in signals.forever() {
-                println!("Received signal {:?}", sig);
+    //let mut buf = String::new();
+    //stdin().read_line(&mut buf).unwrap();
+    //let res = client
+    //.request(PiteriaMessage::Hello)
+    //.await
+    //.expect("error in request");
+    //println!("Got response: {:?}", res);
 
-                if sig == SIGINT {
-                    let result = client.close().await;
-                    return result;
-                }
-            }
-            unreachable!()
-        });
+    //let signals = tokio::spawn(async move {
+    //for sig in signals.forever() {
+    //println!("Received signal {:?}", sig);
 
-        let _ = signals.await.expect("error while shutting down");
-    }
+    //if sig == SIGINT {
+    //let result = client.close().await;
+    //return result;
+    //}
+    //}
+    //unreachable!()
+    //});
+
+    //let _ = signals.await.expect("error while shutting down");
+    //}
 }
 
 async fn process_message(message: PiteriaMessage) -> PiteriaMessage {
@@ -74,7 +82,7 @@ async fn process_message(message: PiteriaMessage) -> PiteriaMessage {
     PiteriaMessage::Hello
 }
 
-async fn demo() {
+async fn demo(pool: &SqlitePool) {
     let systemd_cfg = SystemdConfig {
         file_location: "dump/hello2.service".to_string(),
         unit: SysdUnitConfig::default(),
@@ -90,21 +98,18 @@ async fn demo() {
         location: vec![NginxLocation::new(), NginxLocation::new()],
     };
 
-    let pool = db_pool("piteria.db")
-        .await
-        .expect("Could not establish DB pool");
-
-    sqlx::migrate!().run(&pool).await.unwrap();
+    println!("Running migrations");
+    sqlx::migrate!().run(pool).await.unwrap();
 
     println!("Migrations ran");
 
     sqlx::query!("INSERT INTO deployments(name, description) VALUES ('foo','bar')")
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap();
 
     sqlx::query!("DELETE FROM deployments WHERE name = 'foo'")
-        .execute(&pool)
+        .execute(pool)
         .await
         .unwrap();
 
@@ -146,6 +151,9 @@ fn setup_systemd_service(config: SystemdConfig) {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Deployment {
+    /// Deployment ID in Sqlite.
+    id: i64,
+
     /// User defined name of the deployment.
     pub name: String,
 
