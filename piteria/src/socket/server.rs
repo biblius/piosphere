@@ -1,44 +1,13 @@
 use crate::{
-    process_message,
     socket::{read, write, PiteriaIOError},
-    PiteriaResult,
+    PiteriaResult, PiteriaService,
 };
-use signal_hook::{
-    consts::{SIGINT, SIGTERM},
-    iterator::Signals,
-};
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc::{Receiver, Sender},
-    task::{JoinError, JoinHandle},
+    task::JoinHandle,
 };
-
-pub async fn start_server(socket: &str) -> Result<(), JoinError> {
-    println!("Starting server");
-
-    let mut signals = Signals::new([SIGTERM, SIGINT]).unwrap();
-
-    let handle = Server::run(socket);
-
-    let signals = tokio::spawn(async move {
-        for sig in signals.forever() {
-            println!("Received signal {:?}", sig);
-
-            if sig == SIGINT {
-                println!("Closing server");
-                let result = handle.close().await;
-                return result;
-            }
-        }
-        unreachable!()
-    });
-
-    println!("Server up and running");
-
-    // Should theoretically never happen since the signals task cannot panic
-    signals.await.expect("error while shutting down")
-}
 
 pub struct Server {
     terminate_tx: Sender<()>,
@@ -46,7 +15,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn run(socket: &str) -> Self {
+    pub fn new(service: PiteriaService, socket: &str) -> Self {
         let socket = Path::new(socket);
 
         // Delete old socket if necessary
@@ -60,7 +29,7 @@ impl Server {
         let (terminate_tx, terminate_rx) = tokio::sync::mpsc::channel(128);
         let (sys_tx, sys_rx) = tokio::sync::mpsc::channel(128);
 
-        let rt = ServerRuntime::new(listener, sys_rx, terminate_rx);
+        let rt = ServerRuntime::new(listener, sys_rx, terminate_rx, Arc::new(service));
 
         let handle = rt.run(sys_tx);
 
@@ -85,6 +54,7 @@ struct ServerRuntime {
     terminators: HashMap<usize, Sender<()>>,
     handles: HashMap<usize, JoinHandle<()>>,
     next_id: usize,
+    service: Arc<PiteriaService>,
 }
 
 impl ServerRuntime {
@@ -92,6 +62,7 @@ impl ServerRuntime {
         listener: UnixListener,
         sys_rx: Receiver<SystemMessage>,
         terminate_rx: Receiver<()>,
+        service: Arc<PiteriaService>,
     ) -> Self {
         Self {
             terminate_rx,
@@ -100,6 +71,7 @@ impl ServerRuntime {
             terminators: HashMap::new(),
             handles: HashMap::new(),
             next_id: 0,
+            service,
         }
     }
 
@@ -121,7 +93,8 @@ impl ServerRuntime {
                                     id: session_id,
                                     stream: socket,
                                     sys_tx: sys_tx.clone(),
-                                    terminate_rx: term_rx
+                                    terminate_rx: term_rx,
+                                    service: self.service.clone(),
                                 };
                                 let handle = session.run();
                                 self.terminators.insert(session_id, term_tx);
@@ -199,6 +172,8 @@ struct ServerSession {
 
     /// Termination receiver
     terminate_rx: Receiver<()>,
+
+    service: Arc<PiteriaService>,
 }
 
 impl ServerSession {
@@ -212,7 +187,7 @@ impl ServerSession {
                         println!("Session got message: {:?}", message);
                         match message {
                             Ok(message) => {
-                                let response = process_message(message).await;
+                                let response = self.service.process_msg(message).await.unwrap();
                                 if let Err(e) = write(&mut self.stream, response).await {
                                     println!("Error while writing to stream: {e}");
                                 }

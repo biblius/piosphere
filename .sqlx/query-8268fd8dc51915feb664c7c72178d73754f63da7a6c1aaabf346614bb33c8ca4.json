@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "DELETE FROM DEPLOYMENTS WHERE id=?",
+  "query": "DELETE FROM deployments WHERE id=?",
   "describe": {
     "columns": [],
     "parameters": {
@@ -8,5 +8,5 @@
     },
     "nullable": []
   },
-  "hash": "7f02f3e1420d1dd7db56f053475b2f30042dcb175a9be20a5d0af160d577e09f"
+  "hash": "8268fd8dc51915feb664c7c72178d73754f63da7a6c1aaabf346614bb33c8ca4"
 }

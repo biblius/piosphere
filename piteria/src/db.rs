@@ -1,66 +1,110 @@
 use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Deployment {
-    id: i64,
-    name: String,
-    description: String,
-    created_at: NaiveDateTime,
+    pub id: i64,
+    pub name: String,
+    pub description: String,
+    pub created_at: NaiveDateTime,
 }
 
-#[derive(Debug)]
-pub struct CreateDeployment<'a> {
-    name: &'a str,
-    description: &'a str,
-}
-
-impl<'a> From<&'a crate::Deployment> for CreateDeployment<'a> {
-    fn from(value: &crate::Deployment) -> Self {
-        Self {
-            name: &value.name,
-            description: &value.description,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct CreateConfig<'a> {
-    deployment_id: i64,
-    file_path: &'a str,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    id: i64,
-    deployment_id: i64,
-    file_path: String,
-    created_at: NaiveDateTime,
+    pub id: i64,
+    pub deployment_id: i64,
+    pub file_path: String,
+    pub created_at: NaiveDateTime,
 }
 
-/// Establish a connection pool at the specified sqlite file
-pub async fn db_pool(file: &str) -> Result<SqlitePool, sqlx::Error> {
-    let options = SqliteConnectOptions::new()
-        .filename(file)
-        .create_if_missing(true);
-
-    SqlitePool::connect_with(options).await
-}
-
+#[derive(Debug)]
 pub struct PiteriaDatabase {
     client: SqlitePool,
 }
 
 impl PiteriaDatabase {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { client: pool }
+    /// Establish a connection pool at the specified sqlite file
+    pub async fn new(file: &str) -> Result<Self, sqlx::Error> {
+        let options = SqliteConnectOptions::new()
+            .filename(file)
+            .create_if_missing(true);
+
+        let pool = SqlitePool::connect_with(options).await?;
+        Ok(Self { client: pool })
     }
 
-    pub async fn insert_deployment(&self, deployment: &crate::Deployment) -> sqlx::Result<u64> {
-        let deplyoment = CreateDeployment::from(deployment);
-        self.client.begin().await?;
-        // sqlx::query!("")
-        todo!()
+    pub async fn migrate(&self) -> Result<(), sqlx::migrate::MigrateError> {
+        sqlx::migrate!().run(&self.client).await
+    }
+
+    pub async fn get_deployment(&self, id: i64) -> sqlx::Result<(Deployment, Config, Config)> {
+        let deployment = sqlx::query_as!(Deployment, "SELECT * FROM deployments WHERE id=?", id)
+            .fetch_one(&self.client)
+            .await?;
+
+        let nginx_cfg = sqlx::query_as!(
+            Config,
+            "SELECT * FROM nginx_configs WHERE deployment_id=?",
+            deployment.id,
+        )
+        .fetch_one(&self.client)
+        .await?;
+
+        let sysd_cfg = sqlx::query_as!(
+            Config,
+            "SELECT * FROM sysd_configs WHERE deployment_id=?",
+            deployment.id,
+        )
+        .fetch_one(&self.client)
+        .await?;
+
+        Ok((deployment, nginx_cfg, sysd_cfg))
+    }
+
+    pub async fn insert_deployment(
+        &self,
+        deployment: &crate::deployment::Deployment,
+    ) -> sqlx::Result<Deployment> {
+        let mut tx = self.client.begin().await?;
+
+        match {
+            let deployment_new = sqlx::query_as!(
+                Deployment,
+                "INSERT INTO deployments(name, description) VALUES (?, ?) RETURNING *",
+                deployment.name,
+                deployment.description
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "INSERT INTO nginx_configs (deployment_id, file_path) VALUES (?, ?)",
+                deployment_new.id,
+                deployment.nginx_cfg.file_location
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "INSERT INTO sysd_configs (deployment_id, file_path) VALUES (?, ?)",
+                deployment_new.id,
+                deployment.service_cfg.file_location
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            Result::<Deployment, sqlx::Error>::Ok(deployment_new)
+        } {
+            Ok(dep) => {
+                tx.commit().await?;
+                Ok(dep)
+            }
+            Err(e) => {
+                tx.rollback().await?;
+                Err(e)
+            }
+        }
     }
 
     pub async fn list_deployments(&self) -> sqlx::Result<Vec<Deployment>> {

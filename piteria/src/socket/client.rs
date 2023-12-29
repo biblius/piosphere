@@ -1,6 +1,6 @@
 use crate::{
     socket::{read, write},
-    PiteriaMessage,
+    PiteriaMessage, PiteriaResult,
 };
 use tokio::{
     net::UnixStream,
@@ -8,7 +8,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::{PiteriaIOError, PiteriaIOResult, PiteriaRequest, PiteriaResponse};
+use super::{PiteriaIOError, PiteriaRequest, PiteriaResponse};
 
 pub struct Client {
     tx: Sender<PiteriaRequest>,
@@ -17,7 +17,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn new(socket: &str) -> PiteriaIOResult<Self> {
+    pub async fn new(socket: &str) -> PiteriaResult<Self> {
         let (client_tx, session_rx) = tokio::sync::mpsc::channel(128);
         let (terminate_tx, terminate_rx) = tokio::sync::mpsc::channel(128);
 
@@ -40,7 +40,7 @@ impl Client {
     }
 
     /// Send a Piteria message to the server and wait for a response.
-    pub async fn request(&self, msg: PiteriaMessage) -> PiteriaIOResult<PiteriaResponse> {
+    pub async fn request(&self, msg: PiteriaMessage) -> PiteriaResult<PiteriaResponse> {
         println!("Client requesting: {:?}", msg);
 
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -48,10 +48,12 @@ impl Client {
 
         if let Err(e) = self.tx.send(request).await {
             println!("Error while sending to session: {e}");
-            return Err(PiteriaIOError::ChannelClosed(e.to_string()));
+            return Err(PiteriaIOError::ChannelClosed(e.to_string()).into());
         }
 
-        let res = rx.await?;
+        let res = rx
+            .await
+            .map_err(|e| PiteriaIOError::ChannelClosed(e.to_string()))?;
 
         println!("Client got: {res:?}");
 
@@ -103,15 +105,20 @@ impl ClientSession {
                         let Some(msg) = msg else {
                             continue;
                         };
+
                         let PiteriaRequest { tx, msg } = msg;
+
                         println!("Client sending: {:?}", msg);
+
                         if let Err(PiteriaIOError::Io(e)) =
                             write(&mut self.stream, msg).await
                         {
                             println!("Error occurred while writing to socket: {e}");
                             continue;
                         }
+
                         let response = read(&mut self.stream).await;
+
                         match response {
                             Ok(res) => {
                                 println!("Session got response: {:?}", res);

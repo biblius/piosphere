@@ -2,6 +2,8 @@ use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
+use crate::{error::PiteriaError, PiteriaResult, SYSD_FILE_PATH};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemdConfig {
     /// Absolute path to the systemd service file.
@@ -17,6 +19,80 @@ pub struct SystemdConfig {
 
     /// https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#%5BInstall%5D%20Section%20Options
     pub install: SysdInstallConfig,
+}
+
+impl SystemdConfig {
+    pub fn parse(file: &str) -> Self {
+        enum ParseState {
+            Unit,
+            Service,
+            Install,
+        }
+
+        let mut this = Self::default();
+        let mut state = None;
+
+        for line in file.lines() {
+            let line = line.trim();
+
+            if line.is_empty() {
+                continue;
+            }
+
+            if line.starts_with("[Unit]") {
+                state = Some(ParseState::Unit);
+                continue;
+            }
+
+            if line.starts_with("[Service]") {
+                state = Some(ParseState::Service);
+                continue;
+            }
+
+            if line.starts_with("[Install]") {
+                state = Some(ParseState::Install);
+                continue;
+            }
+
+            let Some(ref state) = state else {
+                continue;
+            };
+
+            let Some((key, val)) = line.split_once('=') else {
+                continue;
+            };
+
+            match state {
+                ParseState::Unit => {
+                    this.unit.params.insert(key.to_string(), val.to_string());
+                }
+                ParseState::Service => {
+                    this.service.params.insert(key.to_string(), val.to_string());
+                }
+                ParseState::Install => {
+                    this.install.params.insert(key.to_string(), val.to_string());
+                }
+            }
+        }
+
+        this
+    }
+
+    pub fn write_to_file(&self) -> PiteriaResult<()> {
+        let path = &self.file_location;
+        std::fs::write(path, self.to_string()).map_err(PiteriaError::from)
+    }
+}
+
+impl Default for SystemdConfig {
+    fn default() -> Self {
+        Self {
+            file_location: SYSD_FILE_PATH.to_string(),
+            unit: Default::default(),
+            service: Default::default(),
+            install: Default::default(),
+        }
+    }
 }
 
 impl Display for SystemdConfig {

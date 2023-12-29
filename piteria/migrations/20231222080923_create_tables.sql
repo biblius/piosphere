@@ -7,14 +7,14 @@ CREATE TABLE IF NOT EXISTS deployments (
 
 CREATE TABLE IF NOT EXISTS nginx_configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    deployment_id INT NOT NULL REFERENCES deployments(id),
+    deployment_id INT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     file_path TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS sysd_configs (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    deployment_id INT NOT NULL REFERENCES deployments(id),
+    deployment_id INT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     file_path TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

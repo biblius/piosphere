@@ -8,7 +8,7 @@ use nom::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use crate::PiteriaError;
+use crate::{PiteriaError, PiteriaResult, NGINX_FILE_PATH};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NginxConfig {
@@ -37,14 +37,119 @@ pub struct NginxConfig {
     pub location: Vec<NginxLocation>,
 }
 
+impl NginxConfig {
+    pub fn parse(input: &str) -> Result<NginxConfig, PiteriaError> {
+        let lines = input.lines();
+
+        let mut config = NginxConfig::default();
+        let mut location = NginxLocation::default();
+
+        let mut in_server = false;
+        let mut in_location = false;
+
+        for line in lines {
+            let line = line.trim();
+
+            if line.is_empty() {
+                continue;
+            }
+
+            if line.starts_with("server") && line.ends_with('{') {
+                in_server = true;
+                continue;
+            }
+
+            if in_location && line == "}" {
+                in_location = false;
+                config.location.push(location);
+                location = NginxLocation::default();
+                continue;
+            }
+
+            if in_server && line == "}" {
+                in_server = false;
+                continue;
+            }
+
+            if in_location {
+                if line.starts_with("proxy_pass ") {
+                    let pass: IResult<&str, &str> =
+                        delimited(tag("proxy_pass "), is_not(";"), char(';'))(line);
+                    match pass {
+                        Ok((_, pass)) => location.proxy_pass = pass.to_string(),
+                        Err(_) => {
+                            return Err(PiteriaError::NginxParse(format!(
+                                "Invalid proxy_pass at: {line}"
+                            )))
+                        }
+                    }
+                } else {
+                    let Some((key, value)) = line.split_once(' ') else {
+                        return Err(PiteriaError::NginxParse(format!(
+                            "Invalid location directive at: {line}"
+                        )));
+                    };
+                    location
+                        .directives
+                        .push((key.to_string(), value.to_string()))
+                }
+                continue;
+            }
+
+            if in_server {
+                if line.starts_with("location") {
+                    in_location = true;
+                    let loc = line.split(' ');
+                    for loc in loc.skip(1).take_while(|el| *el != "{") {
+                        location.paths.push(loc.to_string());
+                    }
+                    continue;
+                }
+
+                if line.ends_with(';') {
+                    let Some((key, value)) = line.split_once(' ') else {
+                        continue;
+                    };
+
+                    if value.is_empty() {
+                        continue;
+                    }
+
+                    let value = &value[..value.len() - 1];
+
+                    match key {
+                        "listen" => {
+                            config.listen = value.parse().map_err(|_| {
+                                PiteriaError::NginxParse(format!(
+                                    "Invalid `listen` port value: {value}"
+                                ))
+                            })?
+                        }
+                        "access_log" => config.access_log = Some(value.to_string()),
+                        "server_name" => config.server_name = value.to_string(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(config)
+    }
+
+    pub fn write_to_file(&self) -> PiteriaResult<()> {
+        let path = &self.file_location;
+        std::fs::write(path, self.to_string()).map_err(PiteriaError::from)
+    }
+}
+
 impl Default for NginxConfig {
     fn default() -> Self {
         Self {
-            file_location: Default::default(),
+            file_location: NGINX_FILE_PATH.to_string(),
             listen: 80,
             server_name: Default::default(),
             access_log: None,
-            location: Default::default(),
+            location: vec![],
         }
     }
 }
@@ -135,102 +240,4 @@ impl Display for NginxLocation {
 
         write!(f, "  }}")
     }
-}
-
-pub fn parse_vhost_file(input: &str) -> Result<NginxConfig, PiteriaError> {
-    let lines = input.lines();
-
-    let mut config = NginxConfig::default();
-    let mut location = NginxLocation::default();
-
-    let mut in_server = false;
-    let mut in_location = false;
-
-    for line in lines {
-        let line = line.trim();
-
-        if line.is_empty() {
-            continue;
-        }
-
-        if line.starts_with("server") && line.ends_with('{') {
-            in_server = true;
-            continue;
-        }
-
-        if in_location && line == "}" {
-            in_location = false;
-            config.location.push(location);
-            location = NginxLocation::default();
-            continue;
-        }
-
-        if in_server && line == "}" {
-            in_server = false;
-            continue;
-        }
-
-        if in_location {
-            if line.starts_with("proxy_pass ") {
-                let pass: IResult<&str, &str> =
-                    delimited(tag("proxy_pass "), is_not(";"), char(';'))(line);
-                match pass {
-                    Ok((_, pass)) => location.proxy_pass = pass.to_string(),
-                    Err(_) => {
-                        return Err(PiteriaError::NginxParse(format!(
-                            "Invalid proxy_pass at: {line}"
-                        )))
-                    }
-                }
-            } else {
-                let Some((key, value)) = line.split_once(' ') else {
-                    return Err(PiteriaError::NginxParse(format!(
-                        "Invalid location directive at: {line}"
-                    )));
-                };
-                location
-                    .directives
-                    .push((key.to_string(), value.to_string()))
-            }
-            continue;
-        }
-
-        if in_server {
-            if line.starts_with("location") {
-                in_location = true;
-                let loc = line.split(' ');
-                for loc in loc.skip(1).take_while(|el| *el != "{") {
-                    location.paths.push(loc.to_string());
-                }
-                continue;
-            }
-
-            if line.ends_with(';') {
-                let Some((key, value)) = line.split_once(' ') else {
-                    continue;
-                };
-
-                if value.is_empty() {
-                    continue;
-                }
-
-                let value = &value[..value.len() - 1];
-
-                match key {
-                    "listen" => {
-                        config.listen = value.parse().map_err(|_| {
-                            PiteriaError::NginxParse(format!(
-                                "Invalid `listen` port value: {value}"
-                            ))
-                        })?
-                    }
-                    "access_log" => config.access_log = Some(value.to_string()),
-                    "server_name" => config.server_name = value.to_string(),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    Ok(config)
 }

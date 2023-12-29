@@ -1,4 +1,6 @@
-use crate::Deployment;
+//! Exposes main functionality for unix sockets to be used by the server and clients.
+
+use macros::PiteriaRequest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{array::TryFromSliceError, io::ErrorKind};
 use thiserror::Error;
@@ -17,21 +19,21 @@ const HEADER_SIZE: usize = std::mem::size_of::<usize>();
 
 type PiteriaHeader = [u8; HEADER_SIZE];
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PiteriaRequest)]
 pub enum PiteriaMessage {
     Hello,
+
+    #[response(Vec<crate::db::Deployment>)]
     Overview,
+
+    #[response(crate::deployment::Deployment)]
+    ViewDeployment(i64),
 }
 
 #[derive(Debug)]
 struct PiteriaRequest {
     tx: oneshot::Sender<PiteriaResponse>,
     msg: PiteriaMessage,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum PiteriaResponse {
-    Overview(Vec<Deployment>),
 }
 
 #[derive(Debug, Error)]
@@ -55,7 +57,7 @@ pub enum PiteriaIOError {
     Io(#[from] std::io::Error),
 }
 
-async fn write(stream: &mut UnixStream, message: PiteriaMessage) -> PiteriaIOResult<()> {
+async fn write<T: Serialize>(stream: &mut UnixStream, message: T) -> PiteriaIOResult<()> {
     stream.writable().await?;
 
     println!("Stream is writable");

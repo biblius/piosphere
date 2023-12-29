@@ -2,9 +2,9 @@
 Description=My super awesome application
 
 [Service]
+WorkingDirectory=/path/to/my-app
 User=root
 Restart=always
-WorkingDirectory=/path/to/my-app
 ExecStart=echo 'Hello World'
 Group=root
 Environment=MyKey=MyValue

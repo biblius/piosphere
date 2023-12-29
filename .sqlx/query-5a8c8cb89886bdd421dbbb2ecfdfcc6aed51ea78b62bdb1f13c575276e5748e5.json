@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO nginx_configs (deployment_id, file_path) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "5a8c8cb89886bdd421dbbb2ecfdfcc6aed51ea78b62bdb1f13c575276e5748e5"
+}

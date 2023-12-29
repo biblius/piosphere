@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sysd_configs (deployment_id, file_path) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "c89fd8c510bf097412322b3060603ad90c9458c4ea92dcd92b3ad601ec809d5d"
+}
