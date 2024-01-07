@@ -1,17 +1,23 @@
+use std::io::ErrorKind;
+
 use crate::{
-    socket::{read, write},
-    PiteriaMessage, PiteriaResult,
+    socket::{Header, Hello, PiteriaWrite, HEADER_SIZE},
+    PiteriaResult,
 };
 use tokio::{
+    io::AsyncReadExt,
     net::UnixStream,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        oneshot,
+    },
     task::JoinHandle,
 };
 
-use super::{PiteriaIOError, PiteriaRequest, PiteriaResponse};
+use super::{Message, PiteriaIOError, PiteriaIOResult, PiteriaRequest};
 
 pub struct Client {
-    tx: Sender<PiteriaRequest>,
+    tx: Sender<PiteriaClientRequest>,
     session_handle: JoinHandle<()>,
     terminate_tx: Sender<()>,
 }
@@ -32,7 +38,7 @@ impl Client {
             terminate_tx,
         };
 
-        this.request(PiteriaMessage::Hello).await?;
+        this.request(Hello).await?;
 
         println!("Client successfully initialized");
 
@@ -40,11 +46,10 @@ impl Client {
     }
 
     /// Send a Piteria message to the server and wait for a response.
-    pub async fn request(&self, msg: PiteriaMessage) -> PiteriaResult<PiteriaResponse> {
-        println!("Client requesting: {:?}", msg);
+    pub async fn request<M: Message>(&self, msg: M) -> PiteriaResult<M::Response> {
+        let request = msg.to_request()?;
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let request = PiteriaRequest { tx, msg };
+        let (rx, request) = PiteriaClientRequest::from_request(request);
 
         if let Err(e) = self.tx.send(request).await {
             println!("Error while sending to session: {e}");
@@ -55,7 +60,7 @@ impl Client {
             .await
             .map_err(|e| PiteriaIOError::ChannelClosed(e.to_string()))?;
 
-        println!("Client got: {res:?}");
+        let res = bincode::deserialize(&res)?;
 
         Ok(res)
     }
@@ -71,14 +76,14 @@ impl Client {
 struct ClientSession {
     stream: UnixStream,
     terminate_rx: Receiver<()>,
-    msg_rx: Receiver<PiteriaRequest>,
+    msg_rx: Receiver<PiteriaClientRequest>,
 }
 
 impl ClientSession {
     fn new(
         stream: UnixStream,
         terminate_rx: Receiver<()>,
-        msg_rx: Receiver<PiteriaRequest>,
+        msg_rx: Receiver<PiteriaClientRequest>,
     ) -> Self {
         Self {
             stream,
@@ -106,18 +111,17 @@ impl ClientSession {
                             continue;
                         };
 
-                        let PiteriaRequest { tx, msg } = msg;
+                        let PiteriaClientRequest { tx, msg } = msg;
 
                         println!("Client sending: {:?}", msg);
 
-                        if let Err(PiteriaIOError::Io(e)) =
-                            write(&mut self.stream, msg).await
+                        if let Err(PiteriaIOError::Io(e)) = self.stream.write(msg).await
                         {
                             println!("Error occurred while writing to socket: {e}");
                             continue;
                         }
 
-                        let response = read(&mut self.stream).await;
+                        let response = Self::read(&mut self.stream).await;
 
                         match response {
                             Ok(res) => {
@@ -138,5 +142,39 @@ impl ClientSession {
                 }
             }
         })
+    }
+
+    async fn read(stream: &mut UnixStream) -> PiteriaIOResult<Vec<u8>> {
+        stream.readable().await?;
+
+        let mut buf = [0; HEADER_SIZE];
+        if let Err(e) = stream.read_exact(&mut buf).await {
+            if let ErrorKind::UnexpectedEof = e.kind() {
+                return Err(PiteriaIOError::SocketClosed(e.to_string()));
+            }
+        };
+
+        let len = Header::size(buf);
+        println!("Read header: {len}");
+
+        let mut buf = vec![0; len];
+        stream.read_exact(&mut buf).await?;
+
+        Ok(buf)
+    }
+}
+
+/// Intermediary data used by the client and its session to transfer messages
+#[derive(Debug)]
+struct PiteriaClientRequest {
+    tx: oneshot::Sender<Vec<u8>>,
+    msg: PiteriaRequest,
+}
+
+impl PiteriaClientRequest {
+    fn from_request(message: PiteriaRequest) -> (oneshot::Receiver<Vec<u8>>, Self) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let this = Self { tx, msg: message };
+        (rx, this)
     }
 }

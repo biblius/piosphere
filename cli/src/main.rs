@@ -1,7 +1,7 @@
 use std::io::stdin;
 
 use piteria::{
-    socket::{client::Client, PiteriaMessage},
+    socket::{client::Client, ViewDeployment},
     PITERIA_SOCKET,
 };
 use signal_hook::{
@@ -19,7 +19,7 @@ async fn main() {
     let mut buf = String::new();
     stdin().read_line(&mut buf).unwrap();
     let res = client
-        .request(PiteriaMessage::ViewDeployment(5))
+        .request(ViewDeployment(5))
         .await
         .expect("error in request");
     println!("Got response: {:?}", res);

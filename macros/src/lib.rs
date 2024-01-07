@@ -1,50 +1,42 @@
-use proc_macro_error::abort;
 use quote::quote;
-use syn::{spanned::Spanned, Data, DataEnum, DeriveInput, Ident, MetaList};
+use syn::{ItemStruct, Token};
 
-#[proc_macro_derive(PiteriaRequest, attributes(response))]
+#[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
-pub fn derive_request(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let derive: DeriveInput = syn::parse(input).expect("invalid input");
+pub fn request(
+    attrs: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let strct: ItemStruct = syn::parse(input).expect("invalid input");
 
-    let Data::Enum(DataEnum { variants, .. }) = derive.data else {
-        abort!(derive.span(), "PiteriaRequest must be an enum");
-    };
-
-    let mut res_variants: Vec<(&Ident, Option<&MetaList>)> = vec![];
-
-    for variant in variants.iter() {
-        let ident = &variant.ident;
-
-        if variant.attrs.is_empty() {
-            res_variants.push((ident, None));
-            continue;
-        }
-
-        let attr = &variant.attrs[0];
-
-        if !attr.meta.path().is_ident("response") {
-            abort!(attr.span(), "Unrecognized annotation")
-        }
-
-        let list = attr.meta.require_list().expect("must be list");
-
-        res_variants.push((ident, Some(list)));
-    }
-
-    let tokens = res_variants.into_iter().map(|(id, ty)| match ty {
-        Some(list) => {
-            let ty = list.parse_args::<syn::Type>().expect("must be type");
-            quote!(#id(#ty))
-        }
-        None => quote!(#id),
-    });
+    let id = &strct.ident;
+    let Request { response, tag } = syn::parse(attrs).expect("invalid input");
 
     quote!(
-        #[derive(Debug, Serialize, Deserialize)]
-        pub enum PiteriaResponse {
-            #(#tokens),*
+        #strct
+
+        impl crate::socket::Message for #id {
+            type Response = #response;
+
+            fn tag(&self) -> crate::socket::PiteriaTag {
+                crate::socket::PiteriaTag::#tag
+            }
         }
     )
     .into()
+}
+
+#[derive(Debug)]
+struct Request {
+    response: syn::Path,
+    tag: syn::Path,
+}
+
+impl syn::parse::Parse for Request {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let response: syn::Path = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let tag: syn::Path = input.parse()?;
+        Ok(Self { response, tag })
+    }
 }

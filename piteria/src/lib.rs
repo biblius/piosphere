@@ -1,8 +1,9 @@
 use db::PiteriaDatabase;
 use deployment::{nginx::NginxConfig, systemd::SystemdConfig};
 use error::PiteriaError;
-use socket::{PiteriaMessage, PiteriaResponse};
+use socket::{Hello, PiteriaRequest, PiteriaTag, PiteriaWrite, ViewDeployment};
 use std::process::{Command, Stdio};
+use tokio::net::UnixStream;
 
 pub mod db;
 pub mod deployment;
@@ -33,18 +34,21 @@ impl PiteriaService {
         Self { db }
     }
 
-    pub async fn process_msg(&self, msg: PiteriaMessage) -> PiteriaResult<PiteriaResponse> {
-        match msg {
-            PiteriaMessage::Hello => Ok(PiteriaResponse::Hello),
-            PiteriaMessage::Overview => {
+    pub async fn respond(&self, stream: &mut UnixStream, msg: PiteriaRequest) -> PiteriaResult<()> {
+        match msg.tag {
+            PiteriaTag::Hello => stream.write(Hello).await?,
+            PiteriaTag::Overview => {
                 let deployments = self.db.list_deployments().await?;
-                Ok(PiteriaResponse::Overview(deployments))
+                stream.write(deployments).await?
             }
-            PiteriaMessage::ViewDeployment(id) => {
-                let deployment = self.view_deployment(id).await?;
-                Ok(PiteriaResponse::ViewDeployment(deployment))
+            PiteriaTag::ViewDeployment => {
+                let id: ViewDeployment = bincode::deserialize(&msg.message)?;
+                let deployment = self.view_deployment(id.0).await?;
+                stream.write(deployment).await?
             }
         }
+
+        Ok(())
     }
 
     async fn view_deployment(&self, id: i64) -> PiteriaResult<deployment::Deployment> {

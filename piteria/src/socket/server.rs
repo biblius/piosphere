@@ -1,13 +1,17 @@
 use crate::{
-    socket::{read, write, PiteriaIOError},
+    socket::{Header, PiteriaIOError, PiteriaRequest, HEADER_SIZE},
     PiteriaResult, PiteriaService,
 };
-use std::{collections::HashMap, path::Path, sync::Arc};
+use serde::de::DeserializeOwned;
+use std::{collections::HashMap, io::ErrorKind, path::Path, sync::Arc};
 use tokio::{
+    io::AsyncReadExt,
     net::{UnixListener, UnixStream},
     sync::mpsc::{Receiver, Sender},
     task::JoinHandle,
 };
+
+use super::PiteriaIOResult;
 
 pub struct Server {
     terminate_tx: Sender<()>,
@@ -183,14 +187,11 @@ impl ServerSession {
             loop {
                 tokio::select! {
 
-                message = read(&mut self.stream) => {
+                message = Self::read::<PiteriaRequest>(&mut self.stream) => {
                         println!("Session got message: {:?}", message);
                         match message {
                             Ok(message) => {
-                                let response = self.service.process_msg(message).await.unwrap();
-                                if let Err(e) = write(&mut self.stream, response).await {
-                                    println!("Error while writing to stream: {e}");
-                                }
+                                self.service.respond(&mut self.stream, message).await.unwrap();
                             }
                             Err(e) => {
                                 match e {
@@ -212,6 +213,27 @@ impl ServerSession {
                 }
             }
         })
+    }
+
+    async fn read<T: DeserializeOwned>(stream: &mut UnixStream) -> PiteriaIOResult<T> {
+        stream.readable().await?;
+
+        let mut buf = [0; HEADER_SIZE];
+        if let Err(e) = stream.read_exact(&mut buf).await {
+            if let ErrorKind::UnexpectedEof = e.kind() {
+                return Err(PiteriaIOError::SocketClosed(e.to_string()));
+            }
+        };
+
+        let len = Header::size(buf);
+        println!("Read header: {len}");
+
+        let mut buf = vec![0; len];
+        stream.read_exact(&mut buf).await?;
+
+        let msg = bincode::deserialize(&buf)?;
+
+        Ok(msg)
     }
 }
 

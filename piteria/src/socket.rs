@@ -1,14 +1,12 @@
 //! Exposes main functionality for unix sockets to be used by the server and clients.
 
-use macros::PiteriaRequest;
+use macros::request;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{array::TryFromSliceError, io::ErrorKind};
+use std::array::TryFromSliceError;
 use thiserror::Error;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::UnixStream,
-    sync::oneshot,
-};
+use tokio::{io::AsyncWriteExt, net::UnixStream};
+
+use crate::{deployment::Deployment, PiteriaResult};
 
 pub mod client;
 pub mod server;
@@ -19,21 +17,42 @@ const HEADER_SIZE: usize = std::mem::size_of::<usize>();
 
 type PiteriaHeader = [u8; HEADER_SIZE];
 
-#[derive(Debug, Serialize, Deserialize, PiteriaRequest)]
-pub enum PiteriaMessage {
-    Hello,
+pub trait Message: Serialize {
+    type Response: DeserializeOwned;
 
-    #[response(Vec<crate::db::Deployment>)]
-    Overview,
+    fn to_request(&self) -> PiteriaResult<PiteriaRequest> {
+        let tag = self.tag();
+        let message = bincode::serialize(self)?;
+        let req = PiteriaRequest { tag, message };
+        Ok(req)
+    }
 
-    #[response(crate::deployment::Deployment)]
-    ViewDeployment(i64),
+    fn tag(&self) -> PiteriaTag;
 }
 
-#[derive(Debug)]
-struct PiteriaRequest {
-    tx: oneshot::Sender<PiteriaResponse>,
-    msg: PiteriaMessage,
+#[derive(Debug, Serialize, Deserialize)]
+#[request(Self, Hello)]
+pub struct Hello;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[request(Vec<crate::db::Deployment>, Overview)]
+pub struct Overview;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[request(Vec<Deployment>, ViewDeployment)]
+pub struct ViewDeployment(pub i64);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PiteriaRequest {
+    pub tag: PiteriaTag,
+    pub message: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PiteriaTag {
+    Hello,
+    Overview,
+    ViewDeployment,
 }
 
 #[derive(Debug, Error)]
@@ -57,44 +76,31 @@ pub enum PiteriaIOError {
     Io(#[from] std::io::Error),
 }
 
-async fn write<T: Serialize>(stream: &mut UnixStream, message: T) -> PiteriaIOResult<()> {
-    stream.writable().await?;
-
-    println!("Stream is writable");
-    let message = bincode::serialize(&message)?;
-    let header = Header::create(message.len());
-
-    stream.write_all(&header).await?;
-    println!("Wrote header");
-
-    stream.write_all(&message).await?;
-    println!("Wrote body");
-
-    stream.flush().await?;
-    println!("Socket Flushed");
-
-    Ok(())
+#[allow(async_fn_in_trait)]
+pub trait PiteriaWrite {
+    async fn write<T: Serialize>(&mut self, message: T) -> PiteriaIOResult<()>;
 }
 
-async fn read<T: DeserializeOwned>(stream: &mut UnixStream) -> PiteriaIOResult<T> {
-    stream.readable().await?;
+impl PiteriaWrite for UnixStream {
+    async fn write<T: Serialize>(&mut self, message: T) -> PiteriaIOResult<()> {
+        self.writable().await?;
 
-    let mut buf = [0; HEADER_SIZE];
-    if let Err(e) = stream.read_exact(&mut buf).await {
-        if let ErrorKind::UnexpectedEof = e.kind() {
-            return Err(PiteriaIOError::SocketClosed(e.to_string()));
-        }
-    };
+        println!("Stream is writable");
+        let request = bincode::serialize(&message)?;
 
-    let len = Header::size(buf);
-    println!("Read header: {len}");
+        let header = Header::create(request.len());
 
-    let buf = &mut vec![0; len];
-    stream.read_exact(buf).await?;
+        self.write_all(&header).await?;
+        println!("Wrote header");
 
-    let msg = bincode::deserialize(buf)?;
+        self.write_all(&request).await?;
+        println!("Wrote body");
 
-    Ok(msg)
+        self.flush().await?;
+        println!("Socket Flushed");
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

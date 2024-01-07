@@ -15,4 +15,7 @@ pub enum PiteriaError {
 
     #[error("{0}")]
     Sqlx(#[from] sqlx::Error),
+
+    #[error("{0}")]
+    Bincode(#[from] bincode::Error),
 }
