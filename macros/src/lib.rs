@@ -18,8 +18,8 @@ pub fn request(
         impl crate::socket::Message for #id {
             type Response = #response;
 
-            fn tag(&self) -> crate::socket::PiteriaTag {
-                crate::socket::PiteriaTag::#tag
+            fn tag(&self) -> crate::socket::PiosphereTag {
+                crate::socket::PiosphereTag::#tag
             }
         }
     )

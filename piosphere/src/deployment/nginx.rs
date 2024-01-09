@@ -8,7 +8,7 @@ use nom::{
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use crate::{PiteriaError, PiteriaResult, NGINX_FILE_PATH};
+use crate::{PiosphereError, PiosphereResult, NGINX_FILE_PATH};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NginxConfig {
@@ -38,7 +38,7 @@ pub struct NginxConfig {
 }
 
 impl NginxConfig {
-    pub fn parse(input: &str) -> Result<NginxConfig, PiteriaError> {
+    pub fn parse(input: &str) -> Result<NginxConfig, PiosphereError> {
         let lines = input.lines();
 
         let mut config = NginxConfig::default();
@@ -78,14 +78,14 @@ impl NginxConfig {
                     match pass {
                         Ok((_, pass)) => location.proxy_pass = pass.to_string(),
                         Err(_) => {
-                            return Err(PiteriaError::NginxParse(format!(
+                            return Err(PiosphereError::NginxParse(format!(
                                 "Invalid proxy_pass at: {line}"
                             )))
                         }
                     }
                 } else {
                     let Some((key, value)) = line.split_once(' ') else {
-                        return Err(PiteriaError::NginxParse(format!(
+                        return Err(PiosphereError::NginxParse(format!(
                             "Invalid location directive at: {line}"
                         )));
                     };
@@ -120,7 +120,7 @@ impl NginxConfig {
                     match key {
                         "listen" => {
                             config.listen = value.parse().map_err(|_| {
-                                PiteriaError::NginxParse(format!(
+                                PiosphereError::NginxParse(format!(
                                     "Invalid `listen` port value: {value}"
                                 ))
                             })?
@@ -136,9 +136,9 @@ impl NginxConfig {
         Ok(config)
     }
 
-    pub fn write_to_file(&self) -> PiteriaResult<()> {
+    pub fn write_to_file(&self) -> PiosphereResult<()> {
         let path = &self.file_location;
-        std::fs::write(path, self.to_string()).map_err(PiteriaError::from)
+        std::fs::write(path, self.to_string()).map_err(PiosphereError::from)
     }
 }
 

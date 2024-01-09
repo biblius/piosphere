@@ -1,7 +1,10 @@
 use std::io::stdin;
 
-use piteria::{
-    socket::{client::Client, ViewDeployment},
+use piosphere::{
+    socket::{
+        client::Client,
+        message::{Overview, ViewDeployment},
+    },
     PITERIA_SOCKET,
 };
 use signal_hook::{
@@ -14,14 +17,11 @@ async fn main() {
     println!("Starting client");
     let client = Client::new(PITERIA_SOCKET)
         .await
-        .expect("Could not connect to Piteria server");
+        .expect("Could not connect to Piosphere server");
 
     let mut buf = String::new();
     stdin().read_line(&mut buf).unwrap();
-    let res = client
-        .request(ViewDeployment(5))
-        .await
-        .expect("error in request");
+    let res = client.request(Overview).await.expect("error in request");
     println!("Got response: {:?}", res);
 
     let mut signals = Signals::new([SIGTERM, SIGINT]).unwrap();

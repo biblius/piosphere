@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-use crate::socket::PiteriaIOError;
+use crate::socket::PiosphereIOError;
 
 #[derive(Debug, Error)]
-pub enum PiteriaError {
+pub enum PiosphereError {
     #[error("{0}")]
     IO(#[from] std::io::Error),
 
@@ -11,7 +11,7 @@ pub enum PiteriaError {
     NginxParse(String),
 
     #[error("{0}")]
-    PiteriaIO(#[from] PiteriaIOError),
+    PiosphereIO(#[from] PiosphereIOError),
 
     #[error("{0}")]
     Sqlx(#[from] sqlx::Error),

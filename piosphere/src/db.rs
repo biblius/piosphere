@@ -4,7 +4,7 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Deployment {
-    pub id: i64,
+    pub id: String,
     pub name: String,
     pub description: String,
     pub created_at: NaiveDateTime,
@@ -12,18 +12,18 @@ pub struct Deployment {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
-    pub id: i64,
+    pub id: String,
     pub deployment_id: i64,
     pub file_path: String,
     pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug)]
-pub struct PiteriaDatabase {
+pub struct PiosphereDatabase {
     client: SqlitePool,
 }
 
-impl PiteriaDatabase {
+impl PiosphereDatabase {
     /// Establish a connection pool at the specified sqlite file
     pub async fn new(file: &str) -> Result<Self, sqlx::Error> {
         let options = SqliteConnectOptions::new()
@@ -38,7 +38,8 @@ impl PiteriaDatabase {
         sqlx::migrate!().run(&self.client).await
     }
 
-    pub async fn get_deployment(&self, id: i64) -> sqlx::Result<(Deployment, Config, Config)> {
+    /// (Deploymeny, NginxConfig, SysdConfig)
+    pub async fn get_deployment(&self, id: &str) -> sqlx::Result<(Deployment, Config, Config)> {
         let deployment = sqlx::query_as!(Deployment, "SELECT * FROM deployments WHERE id=?", id)
             .fetch_one(&self.client)
             .await?;
@@ -71,7 +72,8 @@ impl PiteriaDatabase {
         match {
             let deployment_new = sqlx::query_as!(
                 Deployment,
-                "INSERT INTO deployments(name, description) VALUES (?, ?) RETURNING *",
+                "INSERT INTO deployments(id, name, description) VALUES (?, ?, ?) RETURNING *",
+                deployment.id,
                 deployment.name,
                 deployment.description
             )

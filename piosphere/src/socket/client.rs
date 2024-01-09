@@ -1,8 +1,6 @@
-use std::io::ErrorKind;
-
 use crate::{
-    socket::{Header, Hello, PiteriaWrite, HEADER_SIZE},
-    PiteriaResult,
+    socket::{message::Hello, Header, PiosphereHeader, PiosphereWrite},
+    PiosphereResult,
 };
 use tokio::{
     io::AsyncReadExt,
@@ -14,16 +12,16 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::{Message, PiteriaIOError, PiteriaIOResult, PiteriaRequest};
+use super::{Message, PiosphereIOError, PiosphereIOResult, PiosphereRequest};
 
 pub struct Client {
-    tx: Sender<PiteriaClientRequest>,
+    tx: Sender<PiosphereClientRequest>,
     session_handle: JoinHandle<()>,
     terminate_tx: Sender<()>,
 }
 
 impl Client {
-    pub async fn new(socket: &str) -> PiteriaResult<Self> {
+    pub async fn new(socket: &str) -> PiosphereResult<Self> {
         let (client_tx, session_rx) = tokio::sync::mpsc::channel(128);
         let (terminate_tx, terminate_rx) = tokio::sync::mpsc::channel(128);
 
@@ -45,20 +43,20 @@ impl Client {
         Ok(this)
     }
 
-    /// Send a Piteria message to the server and wait for a response.
-    pub async fn request<M: Message>(&self, msg: M) -> PiteriaResult<M::Response> {
+    /// Send a Piosphere message to the server and wait for a response.
+    pub async fn request<M: Message>(&self, msg: M) -> PiosphereResult<M::Response> {
         let request = msg.to_request()?;
 
-        let (rx, request) = PiteriaClientRequest::from_request(request);
+        let (rx, request) = PiosphereClientRequest::from_request(request);
 
         if let Err(e) = self.tx.send(request).await {
             println!("Error while sending to session: {e}");
-            return Err(PiteriaIOError::ChannelClosed(e.to_string()).into());
+            return Err(PiosphereIOError::ChannelClosed(e.to_string()).into());
         }
 
         let res = rx
             .await
-            .map_err(|e| PiteriaIOError::ChannelClosed(e.to_string()))?;
+            .map_err(|e| PiosphereIOError::ChannelClosed(e.to_string()))?;
 
         let res = bincode::deserialize(&res)?;
 
@@ -76,14 +74,14 @@ impl Client {
 struct ClientSession {
     stream: UnixStream,
     terminate_rx: Receiver<()>,
-    msg_rx: Receiver<PiteriaClientRequest>,
+    msg_rx: Receiver<PiosphereClientRequest>,
 }
 
 impl ClientSession {
     fn new(
         stream: UnixStream,
         terminate_rx: Receiver<()>,
-        msg_rx: Receiver<PiteriaClientRequest>,
+        msg_rx: Receiver<PiosphereClientRequest>,
     ) -> Self {
         Self {
             stream,
@@ -111,11 +109,11 @@ impl ClientSession {
                             continue;
                         };
 
-                        let PiteriaClientRequest { tx, msg } = msg;
+                        let PiosphereClientRequest { tx, msg } = msg;
 
                         println!("Client sending: {:?}", msg);
 
-                        if let Err(PiteriaIOError::Io(e)) = self.stream.write(msg).await
+                        if let Err(PiosphereIOError::Io(e)) = self.stream.write(msg).await
                         {
                             println!("Error occurred while writing to socket: {e}");
                             continue;
@@ -132,7 +130,7 @@ impl ClientSession {
                             }
                             Err(e) => {
                                 println!("Error while reading: {e}");
-                                if let PiteriaIOError::SocketClosed(msg) = e {
+                                if let PiosphereIOError::SocketClosed(msg) = e {
                                     println!("Socket closed: {msg}, terminating session");
                                     break;
                                 }
@@ -144,17 +142,11 @@ impl ClientSession {
         })
     }
 
-    async fn read(stream: &mut UnixStream) -> PiteriaIOResult<Vec<u8>> {
+    async fn read(stream: &mut UnixStream) -> PiosphereIOResult<Vec<u8>> {
         stream.readable().await?;
 
-        let mut buf = [0; HEADER_SIZE];
-        if let Err(e) = stream.read_exact(&mut buf).await {
-            if let ErrorKind::UnexpectedEof = e.kind() {
-                return Err(PiteriaIOError::SocketClosed(e.to_string()));
-            }
-        };
-
-        let len = Header::size(buf);
+        let header = PiosphereHeader::read(stream).await?;
+        let len = header.size();
         println!("Read header: {len}");
 
         let mut buf = vec![0; len];
@@ -166,13 +158,13 @@ impl ClientSession {
 
 /// Intermediary data used by the client and its session to transfer messages
 #[derive(Debug)]
-struct PiteriaClientRequest {
+struct PiosphereClientRequest {
     tx: oneshot::Sender<Vec<u8>>,
-    msg: PiteriaRequest,
+    msg: PiosphereRequest,
 }
 
-impl PiteriaClientRequest {
-    fn from_request(message: PiteriaRequest) -> (oneshot::Receiver<Vec<u8>>, Self) {
+impl PiosphereClientRequest {
+    fn from_request(message: PiosphereRequest) -> (oneshot::Receiver<Vec<u8>>, Self) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let this = Self { tx, msg: message };
         (rx, this)

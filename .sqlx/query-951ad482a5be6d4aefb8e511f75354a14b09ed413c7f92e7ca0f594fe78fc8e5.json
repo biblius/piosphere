@@ -1,12 +1,12 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO deployments(name, description) VALUES (?, ?) RETURNING *",
+  "query": "INSERT INTO deployments(id, name, description) VALUES (?, ?, ?) RETURNING *",
   "describe": {
     "columns": [
       {
         "name": "id",
         "ordinal": 0,
-        "type_info": "Int64"
+        "type_info": "Text"
       },
       {
         "name": "name",
@@ -25,7 +25,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 3
     },
     "nullable": [
       false,
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "63e24361af1ad1a33262d88a127b24377608becf311c09173ebf046635400acf"
+  "hash": "951ad482a5be6d4aefb8e511f75354a14b09ed413c7f92e7ca0f594fe78fc8e5"
 }

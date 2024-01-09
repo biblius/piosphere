@@ -341,7 +341,7 @@ name = "cli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "piteria",
+ "piosphere",
  "signal-hook",
  "tokio",
 ]
@@ -1168,7 +1168,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
-name = "piteria"
+name = "piosphere"
 version = "0.1.0"
 dependencies = [
  "bincode",
@@ -1179,10 +1179,11 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
-name = "piteria_web"
+name = "piosphere_web"
 version = "0.1.0"
 dependencies = [
  "axum",
@@ -1421,7 +1422,7 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "clap",
- "piteria",
+ "piosphere",
  "signal-hook",
  "tokio",
 ]
@@ -2057,6 +2058,15 @@ name = "utf8parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "711b9620af191e0cdc7468a8d14e709c3dcdb115b36f838e601583af800a370a"
+
+[[package]]
+name = "uuid"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e395fcf16a7a3d8127ec99782007af141946b4795001f876d54fb0d55978560"
+dependencies = [
+ "getrandom",
+]
 
 [[package]]
 name = "valuable"

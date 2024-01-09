@@ -1,6 +1,6 @@
 use crate::{
-    socket::{Header, PiteriaIOError, PiteriaRequest, HEADER_SIZE},
-    PiteriaResult, PiteriaService,
+    socket::{Header, PiosphereIOError, PiosphereRequest, HEADER_SIZE},
+    PiosphereResult, PiosphereService,
 };
 use serde::de::DeserializeOwned;
 use std::{collections::HashMap, io::ErrorKind, path::Path, sync::Arc};
@@ -11,7 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::PiteriaIOResult;
+use super::PiosphereIOResult;
 
 pub struct Server {
     terminate_tx: Sender<()>,
@@ -19,7 +19,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(service: PiteriaService, socket: &str) -> Self {
+    pub fn new(service: PiosphereService, socket: &str) -> Self {
         let socket = Path::new(socket);
 
         // Delete old socket if necessary
@@ -58,7 +58,7 @@ struct ServerRuntime {
     terminators: HashMap<usize, Sender<()>>,
     handles: HashMap<usize, JoinHandle<()>>,
     next_id: usize,
-    service: Arc<PiteriaService>,
+    service: Arc<PiosphereService>,
 }
 
 impl ServerRuntime {
@@ -66,7 +66,7 @@ impl ServerRuntime {
         listener: UnixListener,
         sys_rx: Receiver<SystemMessage>,
         terminate_rx: Receiver<()>,
-        service: Arc<PiteriaService>,
+        service: Arc<PiosphereService>,
     ) -> Self {
         Self {
             terminate_rx,
@@ -145,7 +145,7 @@ impl ServerRuntime {
         })
     }
 
-    async fn process_sys(&mut self, message: SystemMessage) -> PiteriaResult<()> {
+    async fn process_sys(&mut self, message: SystemMessage) -> PiosphereResult<()> {
         match message {
             SystemMessage::Close(id) => {
                 let handle = self.handles.remove(&id);
@@ -177,7 +177,7 @@ struct ServerSession {
     /// Termination receiver
     terminate_rx: Receiver<()>,
 
-    service: Arc<PiteriaService>,
+    service: Arc<PiosphereService>,
 }
 
 impl ServerSession {
@@ -187,7 +187,7 @@ impl ServerSession {
             loop {
                 tokio::select! {
 
-                message = Self::read::<PiteriaRequest>(&mut self.stream) => {
+                message = Self::read::<PiosphereRequest>(&mut self.stream) => {
                         println!("Session got message: {:?}", message);
                         match message {
                             Ok(message) => {
@@ -195,7 +195,7 @@ impl ServerSession {
                             }
                             Err(e) => {
                                 match e {
-                                    PiteriaIOError::SocketClosed(msg) => {
+                                    PiosphereIOError::SocketClosed(msg) => {
                                         println!("Socket closed: {msg}, terminating session");
                                         self.sys_tx.send(SystemMessage::Close(self.id)).await.unwrap();
                                         break;
@@ -215,17 +215,17 @@ impl ServerSession {
         })
     }
 
-    async fn read<T: DeserializeOwned>(stream: &mut UnixStream) -> PiteriaIOResult<T> {
+    async fn read<T: DeserializeOwned>(stream: &mut UnixStream) -> PiosphereIOResult<T> {
         stream.readable().await?;
 
         let mut buf = [0; HEADER_SIZE];
         if let Err(e) = stream.read_exact(&mut buf).await {
             if let ErrorKind::UnexpectedEof = e.kind() {
-                return Err(PiteriaIOError::SocketClosed(e.to_string()));
+                return Err(PiosphereIOError::SocketClosed(e.to_string()));
             }
         };
 
-        let len = Header::size(buf);
+        let len = buf.size();
         println!("Read header: {len}");
 
         let mut buf = vec![0; len];

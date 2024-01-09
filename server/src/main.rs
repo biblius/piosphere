@@ -1,6 +1,7 @@
 use clap::Parser;
-use piteria::{
-    db::PiteriaDatabase, socket::server::Server, PiteriaService, PITERIA_DB_FILE, PITERIA_SOCKET,
+use piosphere::{
+    db::PiosphereDatabase, socket::server::Server, PiosphereService, PITERIA_DB_FILE,
+    PITERIA_SOCKET,
 };
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
@@ -11,8 +12,8 @@ use signal_hook::{
 async fn main() {
     let args = StartArgs::parse();
 
-    //let db = PiteriaDatabase::new(&args.db).await.unwrap(); // TODO
-    let db = PiteriaDatabase::new("piteria.db").await.unwrap();
+    //let db = PiosphereDatabase::new(&args.db).await.unwrap(); // TODO
+    let db = PiosphereDatabase::new("piosphere.db").await.unwrap();
 
     println!("Running migrations");
 
@@ -20,7 +21,7 @@ async fn main() {
 
     println!("Migrations successful");
 
-    let service = PiteriaService::new(db);
+    let service = PiosphereService::new(db);
 
     println!("Starting server");
 

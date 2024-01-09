@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{error::PiteriaError, PiteriaResult, SYSD_FILE_PATH};
+use crate::{error::PiosphereError, PiosphereResult, SYSD_FILE_PATH};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemdConfig {
@@ -78,9 +78,9 @@ impl SystemdConfig {
         this
     }
 
-    pub fn write_to_file(&self) -> PiteriaResult<()> {
+    pub fn write_to_file(&self) -> PiosphereResult<()> {
         let path = &self.file_location;
-        std::fs::write(path, self.to_string()).map_err(PiteriaError::from)
+        std::fs::write(path, self.to_string()).map_err(PiosphereError::from)
     }
 }
 
